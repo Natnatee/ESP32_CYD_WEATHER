@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="560" viewBox="0 0 600 560">
+  <title>PTT emblem reproduction for small display identification; not an official artwork file</title>
+  <rect width="600" height="560" fill="white"/>
+  <path fill="#00AFDE" d="M236 28 C282 137 254 185 172 275 C104 350 116 424 152 473 C190 523 244 540 296 540 L304 540 C356 540 410 523 448 473 C484 424 496 350 428 275 C346 185 318 137 364 28 C329 109 307 151 300 209 C293 151 271 109 236 28 Z"/>
+  <path fill="#17166A" stroke="#E7EBEE" stroke-width="4" d="M300 146 C292 220 260 252 216 304 C179 347 177 393 193 436 C211 483 253 514 300 514 C347 514 389 483 407 436 C423 393 421 347 384 304 C340 252 308 220 300 146 Z"/>
+  <circle cx="300" cy="397" r="99" fill="#ED1C24" stroke="#CDD3DC" stroke-width="3"/>
+  <path d="M300 518 V540" stroke="white" stroke-width="5"/>
+</svg>

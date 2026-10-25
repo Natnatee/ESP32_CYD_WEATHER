@@ -74,7 +74,7 @@ harness = r'''
 #include <cstring>
 #include <string>
 #include "saved_settings.cpp"
-
+#include "dashboard_gesture.h"
 using std::min;
 using std::max;
 using std::isfinite;
@@ -104,6 +104,16 @@ struct WiFiStub {
     void confirm() {state=WL_CONNECTED;current=pending;}
 } WiFi;
 struct TFTStub {void fillRect(int,int,int,int,int){} void fillCircle(int,int,int,int){} } tft;
+namespace dashboard {
+int hides=0,taps=0,swipes=0;
+DashboardGesture gesture;
+void hide(){++hides;gesture={};}
+void touch(bool pressed,int x,int y){
+    const auto action=gesture.update(pressed,x,y,tick);
+    if(action==DashboardGesture::TAP)++taps;
+    if(action==DashboardGesture::LEFT || action==DashboardGesture::RIGHT)++swipes;
+}
+}
 struct TS_Point {int x=2000,y=2000,z=0;};
 struct TouchStub {TS_Point point;TS_Point getPoint(){return point;}} touch;
 bool touch_diagnostics=false;
@@ -117,11 +127,11 @@ constexpr uint32_t CONNECT_TIMEOUT=20000;
 constexpr int TOUCH_CS=33,TOUCH_RAW_MIN=200,TOUCH_RAW_MAX=3900;
 constexpr int CORNER_X[]={25,294,294,25},CORNER_Y[]={25,25,214,214};
 constexpr int TARGET_SPAN_X=269,TARGET_SPAN_Y=189;
-enum class Screen {CALIBRATION,WIFI,HOME};
+enum class Screen {CALIBRATION,WIFI,DASHBOARD};
 Screen screen=Screen::CALIBRATION;
 struct Calibration {float ox,oy,ux,uy,vx,vy;bool valid;} calibration{};
 bool calibration_complete=false,calibration_ignore_hold=false,pressed_before=false;
-bool home_touch_armed=false,connecting=false;
+bool dashboard_touch_armed=false,connecting=false;
 bool corner_done[4]{};
 float corner_raw_x[4]{},corner_raw_y[4]{};
 uint32_t calibration_completed_at=0,connect_started=0,last_animation=0;
@@ -129,7 +139,7 @@ int sample_corner=-1,sample_count=0,release_samples=0;
 long sample_sum_x=0,sample_sum_y=0;
 int sample_min_x=4095,sample_max_x=0,sample_min_y=4095,sample_max_y=0;
 bool sample_rejected=false;
-uint8_t spinner_phase=0;
+uint8_t page=0,spinner_phase=0;
 String ssid,password;
 const char *wifi_message="";
 int calibration_draws=0,wifi_draws=0,ntp_calls=0;
@@ -138,9 +148,9 @@ void draw_corner_target(int){}
 void draw_wifi(){++wifi_draws;}
 void draw_wifi_status(){}
 void configTime(int,int,const char *,const char *) {++ntp_calls;}
-void draw_home() {assert(WiFi.status()==WL_CONNECTED);screen=Screen::HOME;}
+void draw_dashboard() {assert(WiFi.status()==WL_CONNECTED);screen=Screen::DASHBOARD;}
 '''
-for name in ("inside", "calibration_profile", "reset_corner_sample", "start_calibration", "fit_calibration", "accept_corner",
+for name in ("calibration_profile", "reset_corner_sample", "start_calibration", "fit_calibration", "accept_corner",
              "show_gate", "begin_connect", "enter_wifi", "restore_startup", "force_recalibration", "forget_saved_wifi", "update_network", "map_touch", "poll_touch"):
     harness += "\n" + function(name) + "\n"
 harness += r'''
@@ -224,13 +234,13 @@ void test_startup() {
     ssid="Test AP";password="fixture-pass";begin_connect();assert(connecting && writes==1);
     WiFi.state=WL_CONNECTED;WiFi.current="Wrong AP";update_network(tick+1);
     assert(connecting && writes==1); // Connected status must belong to attempted SSID.
-    WiFi.confirm();home_touch_armed=true;update_network(tick+2);
-    assert(screen==Screen::HOME && !connecting && !home_touch_armed && writes==2 && ntp_calls==1);
+    WiFi.confirm();dashboard_touch_armed=true;update_network(tick+2);
+    assert(screen==Screen::DASHBOARD && !connecting && !dashboard_touch_armed && writes==2 && ntp_calls==1);
     auto good_wifi=records["wifi"];
     ssid="Edited AP";password="edited-fixture";calibration.valid=false;restore_startup();
     assert(calibration.valid && screen==Screen::WIFI && connecting && ssid=="Test AP" && password=="fixture-pass");
     assert(writes==2 && records["cal"]==good_cal && records["wifi"]==good_wifi);
-    WiFi.confirm();update_network(tick+3);assert(screen==Screen::HOME && writes==2); // Boot success: unchanged, no write.
+    WiFi.confirm();update_network(tick+3);assert(screen==Screen::DASHBOARD && writes==2); // Boot success: unchanged, no write.
     WiFi.disconnect(false,false);update_network(tick+4);
     assert(screen==Screen::WIFI && !connecting && records["wifi"]==good_wifi);
     password="failed-fixture";begin_connect();tick+=CONNECT_TIMEOUT;update_network(tick);
@@ -254,7 +264,7 @@ void test_startup() {
     restore_startup();WiFi.confirm();update_network(tick+6);
     show_gate("");ssid="New AP";password="new-fixture";begin_connect();
     fail_write=true;WiFi.confirm();update_network(tick+7);fail_write=false;
-    assert(screen==Screen::HOME && records["wifi"]==open_wifi); // Save failure doesn't break usable connection.
+    assert(screen==Screen::DASHBOARD && records["wifi"]==open_wifi); // Save failure doesn't break usable connection.
     fail_remove=true;forget_saved_wifi();assert(records["wifi"]==open_wifi && !strcmp(wifi_message,"NVS erase failed"));
     force_recalibration();assert(screen==Screen::CALIBRATION && records.count("cal"));fail_remove=false;
     forget_saved_wifi();assert(screen==Screen::CALIBRATION && !records.count("wifi")); // Can't use form before valid touch map.
@@ -268,15 +278,15 @@ void test_restored_touch_gate() {
     const saved_settings::Affine good={500,500,2700,0,0,2700};
     assert(saved_settings::save_calibration(good,calibration_profile()));
     assert(saved_settings::save_wifi("Test AP","fixture-pass"));
-    calibration.valid=false;pressed_before=false;home_touch_armed=false;
+    calibration.valid=false;pressed_before=false;dashboard_touch_armed=false;
     restore_startup();assert(calibration.valid && connecting && screen==Screen::WIFI);
     int x=0,y=0;assert(map_touch(2000,2000,x,y) && x>100 && y>100);
     poll(true,2);WiFi.confirm();update_network(tick);
-    assert(screen==Screen::HOME && !home_touch_armed);
-    poll(true,10);assert(screen==Screen::HOME);
-    poll(false,1);poll(true,3);assert(!home_touch_armed);
-    poll(false,3);assert(home_touch_armed);
-    poll(true,2);poll(false,3);assert(screen==Screen::HOME);
+    assert(screen==Screen::DASHBOARD && !dashboard_touch_armed);
+    poll(true,10);assert(dashboard::taps==0 && dashboard::swipes==0);
+    poll(false,1);poll(true,3);assert(!dashboard_touch_armed && dashboard::taps==0);
+    poll(false,3);assert(dashboard_touch_armed && dashboard::taps==0);
+    poll(true,2);poll(false,3);assert(dashboard::taps==1 && dashboard::swipes==0);
 }
 int main() {
     test_codec();test_startup();test_restored_touch_gate();
